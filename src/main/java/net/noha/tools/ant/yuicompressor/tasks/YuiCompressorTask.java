@@ -41,6 +41,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.ObjectInputStream.GetField;
 import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.io.Writer;
@@ -66,10 +67,9 @@ import com.yahoo.platform.yui.compressor.JavaScriptCompressor;
  */
 public class YuiCompressorTask extends MatchingTask {
 
-    protected File fromDir;
-
-    protected File toDir;
-
+	protected File inFile;
+	protected File outFile;
+	
     // properties with default values
     protected Charset charset = Charsets.UTF_8;
     protected int lineBreakPosition = -1;
@@ -92,14 +92,6 @@ public class YuiCompressorTask extends MatchingTask {
 
     private void compressFile(final File inFile, final File outFile, final String fileType) throws EvaluatorException,
             BuildException {
-        // do not recompress when outFile is newer
-        // always recompress when outFile and inFile are exactly the same file
-        if (outFile.isFile() && !inFile.getAbsolutePath().equals(outFile.getAbsolutePath())) {
-            if (outFile.lastModified() >= inFile.lastModified()) {
-                return;
-            }
-        }
-
         try {
             // prepare input file
             Reader in = openFile(inFile);
@@ -108,6 +100,7 @@ public class YuiCompressorTask extends MatchingTask {
             outFile.getParentFile().mkdirs();
             Writer out = new OutputStreamWriter(new FileOutputStream(outFile), charset);
 
+            
             if (fileType.equals(FileType.JS_FILE)) {
                 final JavaScriptCompressor compressor = createJavaScriptCompressor(in);
                 compressor.compress(out, lineBreakPosition, munge, warn, preserveAllSemiColons, !optimize);
@@ -144,23 +137,6 @@ public class YuiCompressorTask extends MatchingTask {
             stringBuilder.append((char) c);
         }
         return stringBuilder.toString();
-    }
-
-    private void copyFile(final File srcFile, final File targetFile) throws IOException {
-        targetFile.getParentFile().mkdirs();
-        // if necessary, creates the target file
-        targetFile.createNewFile();
-
-        FileChannel srcChannel = null;
-        FileChannel dstChannel = null;
-        try {
-            srcChannel = new FileInputStream(srcFile).getChannel();
-            dstChannel = new FileOutputStream(targetFile).getChannel();
-            dstChannel.transferFrom(srcChannel, 0, srcChannel.size());
-        } finally {
-            srcChannel.close();
-            dstChannel.close();
-        }
     }
 
     private JavaScriptCompressor createJavaScriptCompressor(final Reader in) throws IOException {
@@ -200,58 +176,33 @@ public class YuiCompressorTask extends MatchingTask {
 
     @Override
     public void execute() {
-        validateDirs();
-
-        final DirectoryScanner ds = getDirectoryScanner(fromDir);
-        final String[] files = ds.getIncludedFiles();
-
-        for (final String file : files) {
-            final File inFile = new File(fromDir.getAbsolutePath(), file);
-            final String fileType = FileType.getFileType(file);
-            if (fileType == null) {
-                continue;
-            }
-
-            final File outFile = new File(toDir.getAbsolutePath(), file.replaceFirst(fileType + "$",
-                    newFileSuffix(fileType)));
-            if (isEnabled()) {
-                compressFile(inFile, outFile, fileType);
-            } else {
-                try {
-                    copyFile(inFile, outFile);
-                } catch (final IOException e) {
-                    e.printStackTrace();
-                }
-            }
+        if (!inFile.isFile()) {
+            throw new BuildException(inFile + " is not a valid file");
+        }        
+               
+        if(!outFile.exists()){
+        	try {
+				outFile.createNewFile();
+			} catch (IOException e) {
+				log("Failed to create out file: "+outFile);
+			}
         }
+        String fileType=FileType.getFileType(inFile);
+        compressFile(inFile, outFile, fileType);
+           
 
         if (verbose) {
-            log(stats.getXmlStats());
-            log(stats.getHtmlStats());
-            log(stats.getXhtmlStats());
-            log(stats.getJsStats());
-            log(stats.getCssStats());
+        	if(fileType.equals(FileType.XML_FILE)) log(stats.getXmlStats());
+            if(fileType.equals(FileType.HTML_FILE)) log(stats.getHtmlStats());
+            if(fileType.equals(FileType.XHTML_FILE)) log(stats.getXhtmlStats());
+            if(fileType.equals(FileType.JS_FILE)) log(stats.getJsStats());
+            if(fileType.equals(FileType.CSS_FILE)) log(stats.getCssStats());
             log(stats.getTotalStats());
         }
     }
 
     public boolean isEnabled() {
         return enabled;
-    }
-
-    private String newFileSuffix(final String fileType) {
-        if (fileType.equals(FileType.JS_FILE)) {
-            return jsSuffix;
-        } else if (fileType.equals(FileType.CSS_FILE)) {
-            return cssSuffix;
-        } else if (fileType.equals(FileType.XML_FILE)) {
-            return xmlSuffix;
-        } else if (fileType.equals(FileType.HTML_FILE)) {
-            return htmlSuffix;
-        } else if (fileType.equals(FileType.XHTML_FILE)) {
-            return xhtmlSuffix;
-        }
-        return null;
     }
 
     private Reader openFile(final File file) throws BuildException {
@@ -289,11 +240,7 @@ public class YuiCompressorTask extends MatchingTask {
     public void setEnabled(final boolean enabled) {
         this.enabled = enabled;
     }
-
-    public void setFromDir(final File fromDir) {
-        this.fromDir = fromDir;
-    }
-
+    
     public void setJsSuffix(final String jsSuffix) {
         this.jsSuffix = jsSuffix;
     }
@@ -314,8 +261,12 @@ public class YuiCompressorTask extends MatchingTask {
         this.preserveAllSemiColons = preserveAllSemiColons;
     }
 
-    public void setToDir(final File toDir) {
-        this.toDir = toDir;
+    public void setInFile(final File file) {
+        this.inFile = file;
+    }
+    
+    public void setOutFile(final File file) {
+        this.outFile = file;
     }
 
     public void setVerbose(final boolean verbose) {
@@ -324,14 +275,5 @@ public class YuiCompressorTask extends MatchingTask {
 
     public void setWarn(final boolean warn) {
         this.warn = warn;
-    }
-
-    private void validateDirs() throws BuildException {
-        if (!fromDir.isDirectory()) {
-            throw new BuildException(fromDir + " is not a valid directory");
-        }
-        if (!toDir.isDirectory()) {
-            throw new BuildException(toDir + " is not a valid directory");
-        }
     }
 }

@@ -1,5 +1,7 @@
 package net.noha.tools.ant.yuicompressor.tasks;
 
+import java.io.File;
+
 public class FileType {
     public static final String JS_FILE = ".js";
     public static final String CSS_FILE = ".css";
@@ -17,8 +19,9 @@ public class FileType {
         return this.suffix;
     }
 
-    public static String getFileType(String fileName) {
-        if (fileName == null || "".equals(fileName)) {
+    public static String getFileType(File file) {
+    	String fileName=file.getName();
+        if (file == null || "".equals(fileName)) {
             return null;
         }
 
